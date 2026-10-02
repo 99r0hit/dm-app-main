@@ -1,0 +1,18 @@
+{
+  "1": {
+    "name": "ESP Car 1",
+    "transponder_id": null
+  },
+  "2": {
+    "name": "ESP Car 2",
+    "transponder_id": null
+  },
+  "3": {
+    "name": "ESP Car 3",
+    "transponder_id": null
+  },
+  "4": {
+    "name": "ESP Car 4",
+    "transponder_id": null
+  }
+}

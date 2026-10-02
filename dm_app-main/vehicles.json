@@ -1,0 +1,26 @@
+{
+  "BC6457858428": {
+    "name": "Bronco 1",
+    "nano_id": "RF-BCF464",
+    "steering_reverse": false,
+    "transponder_id": null
+  },
+  "9C52F7020F3C": {
+    "name": "Jeep Gray 2",
+    "nano_id": "RF-C34811",
+    "steering_reverse": false,
+    "transponder_id": null
+  },
+  "5C6557858428": {
+    "name": "Jeep Gray 1",
+    "nano_id": "RF-E67AD6",
+    "steering_reverse": false,
+    "transponder_id": null
+  },
+  "AC3A59858428": {
+    "name": "Bronco 2",
+    "nano_id": "RF-A38DA7",
+    "steering_reverse": false,
+    "transponder_id": null
+  }
+}

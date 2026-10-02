@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriveMatrix</title>
+    <script src="/static/js/tailwind.js"></script>
+    <style>
+        .metallic-finish { background: linear-gradient(135deg, #18181b 0%, #09090b 100%); }
+    </style>
+</head>
+
+<body class="bg-black text-white min-h-screen px-4 py-8">
+
+<nav class="border-b border-white/10 bg-black/90 px-4 py-4 mb-6">
+    <div class="max-w-5xl mx-auto flex items-center justify-between">
+        <div class="text-2xl font-black uppercase italic tracking-tighter">
+            Drive<span class="text-red-600">Matrix</span>
+        </div>
+
+        <a href="/vehicle-management"
+           class="text-xs font-bold uppercase tracking-widest text-zinc-400 hover:text-white">
+            Vehicle Management
+        </a>
+        <a href="/user-management"
+           class="text-xs font-bold uppercase tracking-widest text-zinc-400 hover:text-white">
+            User Management
+        </a>
+        <a href="/wifi"
+           class="text-xs font-bold uppercase tracking-widest text-zinc-400 hover:text-white">
+            WiFi
+        </a>
+        <button id="piRestartButton"
+                onclick="restartPi()"
+                class="text-xs font-bold uppercase tracking-widest text-red-500 border border-red-600/60 bg-red-600/10 px-3 py-1.5 hover:bg-red-600 hover:text-white transition">
+            Restart Pi
+        </button>
+    </div>
+</nav>
+
+<main class="w-full max-w-5xl mx-auto space-y-5">
+
+    <section>
+        <div class="flex items-center justify-between mb-3">
+            <div>
+                <div class="text-xs font-black uppercase tracking-widest text-red-500">
+                    Cockpits
+                </div>
+                <div class="text-xs text-zinc-500 mt-1">
+                    Vehicle, session and steering settings
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="refreshCockpits()"
+                        class="border border-white/15 px-3 py-2 text-[11px] font-bold uppercase tracking-wider hover:bg-white/10">
+                    Refresh
+                </button>
+
+                <button id="wifiSyncButton"
+                        onclick="syncWiFi()"
+                        class="border border-blue-600/60 bg-blue-600/10 text-blue-500 px-3 py-2 text-[11px] font-bold uppercase tracking-wider hover:bg-blue-600 hover:text-white transition">
+                    Sync WiFi
+                </button>
+            </div>
+        </div>
+
+        <div id="cockpitGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="text-xs text-zinc-500 uppercase">Loading cockpits...</div>
+        </div>
+
+        <div id="cockpitMessage" class="hidden text-xs font-bold mt-3"></div>
+    </section>
+
+
+
+    <section class="border-t border-white/10 pt-4 items-center justify-between hidden">
+        <div>
+            <div class="text-sm font-bold uppercase tracking-wider">Auto Center</div>
+            <div class="text-xs text-zinc-500">Return spring force</div>
+        </div>
+
+        <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="autocenterToggle"
+                   onchange="toggleAutocenter()" class="sr-only peer">
+            <div class="w-11 h-6 bg-zinc-800 rounded-full
+                        peer-checked:bg-red-600
+                        after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+                        after:bg-white after:h-5 after:w-5 after:rounded-full
+                        after:transition-all peer-checked:after:translate-x-full">
+            </div>
+        </label>
+    </section>
+
+    <section class="border-t border-white/10 pt-4">
+        <div class="text-xs font-black uppercase tracking-widest text-red-500 mb-3">
+            Haptic Engine
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            <label class="block">
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-zinc-400">Grip Slip Limit</span>
+                    <span id="gripVal" class="text-red-500">0.65G</span>
+                </div>
+                <input type="range" id="gripThresh" min="0.20" max="1.50"
+                       step="0.05" value="0.65" oninput="updateHapticSettings()"
+                       class="w-full accent-red-600">
+            </label>
+
+            <label class="block">
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-zinc-400">Bump Sensitivity</span>
+                    <span id="bumpVal" class="text-red-500">2.0x</span>
+                </div>
+                <input type="range" id="bumpSens" min="0.5" max="5.0"
+                       step="0.1" value="2.0" oninput="updateHapticSettings()"
+                       class="w-full accent-red-600">
+            </label>
+
+            <label class="block">
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-zinc-400">Corner Resistance</span>
+                    <span id="centeringVal" class="text-red-500">25%</span>
+                </div>
+                <input type="range" id="centeringGain" min="0" max="50"
+                       step="1" value="25" oninput="updateHapticSettings()"
+                       class="w-full accent-red-600">
+            </label>
+
+            <label class="block">
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-zinc-400">Filter Smoothing</span>
+                    <span id="alphaVal" class="text-red-500">0.20</span>
+                </div>
+                <input type="range" id="alphaFilter" min="0.05" max="0.50"
+                       step="0.05" value="0.20" oninput="updateHapticSettings()"
+                       class="w-full accent-red-600">
+            </label>
+
+        </div>
+    </section>
+
+</main>
+
+<script>
+let cockpitCache = {};
+let userCache = [];
+
+function renderDriverSearch(cockpit) {
+    const driver = cockpit?.driver || {};
+    const selectedUserId = driver.user_id || "";
+    const selectedUser = userCache.find(
+        user => String(user.user_id) === String(selectedUserId)
+    );
+
+    let displayValue = "";
+    if (selectedUser) {
+        displayValue = selectedUser.phone
+            ? `${selectedUser.name} · ${selectedUser.phone}`
+            : selectedUser.name;
+    } else if (driver.name) {
+        displayValue = driver.phone
+            ? `${driver.name} · ${driver.phone}`
+            : driver.name;
+    }
+
+    return `
+        <div class="relative">
+            <input
+                type="text"
+                id="driver-search-${cockpit.cockpit_id}"
+                value="${escapeHtml(displayValue)}"
+                placeholder="Search driver name or mobile"
+                autocomplete="off"
+                ${cockpit.session?.active ? "disabled" : ""}
+                oninput="filterDriverSuggestions(${cockpit.cockpit_id}, this.value)"
+                onfocus="filterDriverSuggestions(${cockpit.cockpit_id}, this.value)"
+                class="w-full bg-zinc-950 border border-white/15 rounded px-3 py-2.5 text-sm font-bold
+                       focus:outline-none focus:border-red-600 disabled:opacity-40"
+            >
+            <div
+                id="driver-suggestions-${cockpit.cockpit_id}"
+                class="hidden absolute z-50 left-0 right-0 mt-1 bg-zinc-950 border border-white/15
+                       rounded-md shadow-xl overflow-hidden max-h-48 overflow-y-auto">
+            </div>
+        </div>
+    `;
+}
+
+function filterDriverSuggestions(cockpitId, query) {
+    const box = document.getElementById(`driver-suggestions-${cockpitId}`);
+    if (!box) return;
+
+    const q = String(query || "").trim().toLowerCase();
+
+    const matches = userCache.filter(user => {
+        if (!q) return true;
+
+        return [
+            user.name,
+            user.phone,
+            user.user_id
+        ].some(value =>
+            String(value || "").toLowerCase().includes(q)
+        );
+    }).slice(0, 8);
+
+    if (matches.length === 0) {
+        box.innerHTML = `
+            <div class="px-3 py-3 text-xs text-zinc-500 uppercase">
+                No matching driver
+            </div>
+        `;
+        box.classList.remove("hidden");
+        return;
+    }
+
+    box.innerHTML = matches.map(user => `
+        <button
+            type="button"
+            onclick="selectCockpitDriver(${cockpitId}, '${escapeJs(user.user_id)}')"
+            class="w-full text-left px-3 py-2.5 hover:bg-white/10 border-b border-white/5 last:border-b-0">
+            <div class="text-sm font-bold text-white">
+                ${escapeHtml(user.name)}
+            </div>
+            <div class="text-[11px] text-zinc-500 mt-0.5">
+                ${escapeHtml(user.phone || user.user_id)}
+            </div>
+        </button>
+    `).join("");
+
+    box.classList.remove("hidden");
+}
+
+function escapeJs(value) {
+    return String(value ?? "")
+        .replace(/\\/g, "\\\\")
+        .replace(/'/g, "\\'");
+}
+
+function hideDriverSuggestions(cockpitId) {
+    const box = document.getElementById(`driver-suggestions-${cockpitId}`);
+    if (box) {
+        box.classList.add("hidden");
+    }
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function showCockpitMessage(message, success) {
+    const el = document.getElementById("cockpitMessage");
+    el.innerText = message;
+    el.className = success
+        ? "text-xs font-bold text-green-500 mt-3"
+        : "text-xs font-bold text-red-500 mt-3";
+
+    clearTimeout(window.cockpitMessageTimer);
+    window.cockpitMessageTimer = setTimeout(() => {
+        el.className = "hidden text-xs font-bold mt-3";
+    }, 3500);
+}
+
+function renderCockpits(data) {
+    const grid = document.getElementById("cockpitGrid");
+    const vehicles = data.vehicles || [];
+
+    if (!data.cockpits || data.cockpits.length === 0) {
+        grid.innerHTML = '<div class="text-xs text-red-500">No cockpits found.</div>';
+        return;
+    }
+
+    cockpitCache = {};
+    data.cockpits.forEach(c => cockpitCache[c.cockpit_id] = c);
+
+    grid.innerHTML = data.cockpits.map(cockpit => {
+        const wheel = cockpit.wheel;
+        const settings = cockpit.settings || {};
+
+        const wheelText = wheel
+            ? escapeHtml(wheel.name)
+            : "Not connected";
+
+        const assignedElsewhere = new Set(
+            data.cockpits
+                .filter(other => other.cockpit_id !== cockpit.cockpit_id)
+                .map(other => other.vehicle_type === "esp"
+                    ? `esp:${other.esp_car_id}`
+                    : (other.vehicle ? `rf:${other.vehicle}` : null))
+                .filter(Boolean)
+        );
+
+        const rfVehicles = vehicles.filter(v => v.type !== "esp");
+        const espVehicles = vehicles.filter(v => v.type === "esp");
+
+        let options = `<option value="UNASSIGNED"${!cockpit.vehicle ? " selected" : ""}>Unassigned</option>`;
+
+        options += rfVehicles.map(vehicle => {
+            const inUse = assignedElsewhere.has(`rf:${vehicle.name}`);
+            const selected = cockpit.vehicle_type !== "esp" && cockpit.vehicle === vehicle.name;
+            // Car is selectable once it has a registry Nano pairing.
+            // Live Nano serial presence is not checked in UI.
+            const configured = vehicle.available === true || !!vehicle.nano_id;
+
+            const disabledOption =
+                (!configured || (inUse && !selected)) ? " disabled" : "";
+
+            const label = inUse && !selected
+                ? `${escapeHtml(vehicle.name)} (IN USE)`
+                : !configured
+                    ? `${escapeHtml(vehicle.name)} (NO NANO PAIRING)`
+                    : escapeHtml(vehicle.name);
+
+            return `
+                <option value="${escapeHtml(vehicle.name)}"
+                    ${selected ? "selected" : ""}${disabledOption}
+                    ${configured && (!inUse || selected) ? 'style="color:#22c55e;"' : ""}>
+                    ${label}
+                </option>
+            `;
+        }).join("");
+
+        if (espVehicles.length > 0) {
+            options += `<optgroup label="ESP Cars">`;
+            options += espVehicles.map(vehicle => {
+                const inUse = assignedElsewhere.has(`esp:${vehicle.car_id}`);
+                const selected = cockpit.vehicle_type === "esp" && cockpit.esp_car_id === vehicle.car_id;
+                const disabledOption = (inUse && !selected) ? " disabled" : "";
+                const label = inUse && !selected
+                    ? `${escapeHtml(vehicle.name)} (IN USE)`
+                    : escapeHtml(vehicle.name);
+
+                return `
+                    <option value="ESP:${vehicle.car_id}"
+                        ${selected ? "selected" : ""}${disabledOption}
+                        ${(!inUse || selected) ? 'style="color:#38bdf8;"' : ""}>
+                        ${label}
+                    </option>
+                `;
+            }).join("");
+            options += `</optgroup>`;
+        }
+
+        const controlReady = !!wheel;
+        const driverReady = !!(cockpit.driver && cockpit.driver.user_id);
+        const vehicleReady = !!cockpit.vehicle;
+        const startReady = controlReady && driverReady && vehicleReady;
+        const vehicleSelectDisabled = cockpit.session?.active ? "disabled" : "";
+        const availabilityText = !wheel
+            ? "WAITING FOR WHEEL"
+            : !vehicleReady
+                ? "SELECT CAR"
+                : !driverReady
+                    ? "SELECT DRIVER"
+                    : "CONTROL READY";
+        const availabilityClass = startReady ? "text-green-500" : "text-zinc-600";
+
+        return `
+            <div class="metallic-finish border border-white/10 rounded-lg p-4 space-y-4">
+
+                <div class="flex items-center justify-between">
+                    <div class="font-black uppercase tracking-wider">
+                        Cockpit ${cockpit.cockpit_id}
+                    </div>
+                    <div class="text-[10px] font-bold uppercase ${availabilityClass}">
+                        ${availabilityText}
+                    </div>
+                </div>
+
+                <div class="text-xs space-y-1.5">
+                    <div class="flex justify-between gap-3">
+                        <span class="text-zinc-500 uppercase">Wheel</span>
+                        <span class="text-right">${wheelText}</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] text-zinc-500 uppercase tracking-wider mb-1">
+                        Vehicle
+                    </label>
+                    <select id="vehicle-${cockpit.cockpit_id}"
+                            ${vehicleSelectDisabled}
+                            onchange="selectCockpitVehicle(${cockpit.cockpit_id}, this.value)"
+                            class="w-full bg-zinc-950 border border-white/15 rounded px-3 py-2.5 text-sm font-bold
+                                   focus:outline-none focus:border-red-600 disabled:opacity-40">
+                        ${options}
+                    </select>
+                </div>
+
+                <div class="border-t border-white/10 pt-3 space-y-3">
+                    <div class="flex items-center gap-2">
+                        <label class="flex-1">
+                            <span class="block text-[11px] text-zinc-500 uppercase mb-1">
+                                Driver
+                            </span>
+                            ${renderDriverSearch(cockpit)}
+                        </label>
+                    </div>
+
+                    <div class="text-[11px] text-zinc-500 uppercase tracking-wider">
+                        Session
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <label class="flex-1">
+                            <span class="block text-[11px] text-zinc-500 uppercase mb-1">
+                                Duration (min)
+                            </span>
+                            <input type="number"
+                                   id="duration-${cockpit.cockpit_id}"
+                                   min="1"
+                                   max="120"
+                                   step="1"
+                                   value="${escapeHtml(settings.session_duration_minutes ?? 10)}"
+                                   class="w-full bg-zinc-950 border border-white/15 rounded px-2 py-2 text-sm
+                                          disabled:opacity-40"
+                                   ${cockpit.session?.active ? "disabled" : ""}>
+                        </label>
+
+                        <div class="flex-1">
+                            <span class="block text-[11px] text-zinc-500 uppercase mb-1">
+                                Remaining
+                            </span>
+                            <div id="remaining-${cockpit.cockpit_id}"
+                                 class="w-full bg-zinc-950 border border-white/15 rounded px-2 py-2 text-sm font-black">
+                                ${formatRemaining(cockpit.session?.remaining_seconds || 0)}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button id="session-start-${cockpit.cockpit_id}"
+                                onclick="startCockpitSession(${cockpit.cockpit_id})"
+                                ${cockpit.session?.active || !startReady ? "disabled" : ""}
+                                class="flex-1 border border-green-600/60 bg-green-600/10 text-green-500
+                                       py-2 text-xs font-black uppercase tracking-widest
+                                       hover:bg-green-600 hover:text-white transition disabled:opacity-30">
+                            Start
+                        </button>
+
+                        <button id="session-stop-${cockpit.cockpit_id}"
+                                onclick="stopCockpitSession(${cockpit.cockpit_id})"
+                                ${cockpit.session?.active ? "" : "disabled"}
+                                class="flex-1 border border-red-600/60 bg-red-600/10 text-red-500
+                                       py-2 text-xs font-black uppercase tracking-widest
+                                       hover:bg-red-600 hover:text-white transition disabled:opacity-30">
+                            Stop
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-[11px] text-zinc-500 uppercase mb-1">
+                        <span>Steering Sensitivity</span>
+                        <span id="sens-val-${cockpit.cockpit_id}" class="text-red-500">
+                            ${escapeHtml(settings.steering_sensitivity ?? 100)}%
+                        </span>
+                    </div>
+
+                    <input type="range"
+                           id="sens-${cockpit.cockpit_id}"
+                           min="10" max="200" step="5"
+                           value="${escapeHtml(settings.steering_sensitivity ?? 100)}"
+                           oninput="updateSensitivityLabel(${cockpit.cockpit_id})"
+                           class="w-full accent-red-600">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-[11px] text-zinc-500 uppercase mb-1">
+                        <span>Throttle Sensitivity</span>
+                        <span id="throttle-val-${cockpit.cockpit_id}" class="text-red-500">
+                            ${escapeHtml(settings.throttle_sensitivity ?? 100)}%
+                        </span>
+                    </div>
+
+                    <input type="range"
+                           id="throttle-${cockpit.cockpit_id}"
+                           min="10" max="100" step="5"
+                           value="${escapeHtml(settings.throttle_sensitivity ?? 100)}"
+                           oninput="updateThrottleLabel(${cockpit.cockpit_id})"
+                           class="w-full accent-red-600">
+                </div>
+
+                <div class="flex items-center justify-between mt-4 mb-2">
+                    <span class="text-[11px] text-zinc-500 uppercase">Auto-Center</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="autocenter-${cockpit.cockpit_id}" class="sr-only peer" ${settings.autocenter_enabled !== false ? 'checked' : ''} onchange="saveCockpitSettings(${cockpit.cockpit_id})">
+                        <div class="w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-400 after:border-zinc-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
+                    </label>
+                </div>
+
+                <button onclick="saveCockpitSettings(${cockpit.cockpit_id})"
+                        class="w-full border border-red-600/60 bg-red-600/10 text-red-500
+                               py-2.5 text-xs font-black uppercase tracking-widest
+                               hover:bg-red-600 hover:text-white transition">
+                    Apply
+                </button>
+                <div class="mt-4 pt-4 border-t border-red-500/10">
+                    <h4 class="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Test Force (Click Manual)</h4>
+                    <div class="flex space-x-2">
+                        <button onclick="testFFB(${cockpit.cockpit_id}, 'rumble')" class="flex-1 bg-zinc-900 border border-zinc-800 hover:border-red-500 text-white text-[10px] uppercase py-1 px-2 transition-colors">
+                            Rumble
+                        </button>
+                        <button onclick="testFFB(${cockpit.cockpit_id}, 'terrain')" class="flex-1 bg-zinc-900 border border-zinc-800 hover:border-red-500 text-white text-[10px] uppercase py-1 px-2 transition-colors">
+                            Terrain
+                        </button>
+                        <button onclick="testFFB(${cockpit.cockpit_id}, 'kick')" class="flex-1 bg-zinc-900 border border-zinc-800 hover:border-red-500 text-white text-[10px] uppercase py-1 px-2 transition-colors">
+                            Kick
+                        </button>
+                    </div>
+                </div>
+
+
+            </div>
+        `;
+    }).join("");
+}
+
+function updateSensitivityLabel(cockpitId) {
+    const value = document.getElementById(`sens-${cockpitId}`).value;
+    document.getElementById(`sens-val-${cockpitId}`).innerText = `${value}%`;
+}
+
+function updateThrottleLabel(cockpitId) {
+    const value = document.getElementById(`throttle-${cockpitId}`).value;
+    document.getElementById(`throttle-val-${cockpitId}`).innerText = `${value}%`;
+}
+
+async function refreshCockpits() {
+    const button = document.querySelector('button[onclick="refreshCockpits()"]');
+    if (button) {
+        button.disabled = true;
+        button.innerText = "Refreshing...";
+    }
+    try {
+        const res = await fetch("/api/cockpits/refresh", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: "{}"
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Wheel refresh failed");
+        }
+        renderCockpits(data);
+        if (data.warning) {
+            showCockpitMessage(data.warning, false);
+        } else {
+            showCockpitMessage("Wheels refreshed", true);
+        }
+    } catch (error) {
+        showCockpitMessage(error.message, false);
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerText = "Refresh";
+        }
+    }
+}
+
+
+
+async function syncWiFi() {
+    const button = document.getElementById("wifiSyncButton");
+
+    if (button) {
+        button.disabled = true;
+        button.innerText = "Syncing...";
+    }
+
+    try {
+        const res = await fetch("/api/wifi/sync", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: "{}"
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "WiFi sync failed");
+        }
+
+        showCockpitMessage(
+            `WiFi synced to ${data.synced} radio(s)`,
+            true
+        );
+
+    } catch (error) {
+        showCockpitMessage(error.message, false);
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerText = "Sync WiFi";
+        }
+    }
+}
+
+async function restartPi() {
+    if (!confirm("Restart the Pi now? Active driving sessions will be interrupted.")) {
+        return;
+    }
+
+    const button = document.getElementById("piRestartButton");
+    if (button) {
+        button.disabled = true;
+        button.innerText = "Restarting...";
+    }
+
+    try {
+        const res = await fetch("/api/system/restart", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: "{}"
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Restart request failed");
+        }
+
+        showCockpitMessage("Pi is restarting. Reload this page in a minute.", true);
+    } catch (error) {
+        showCockpitMessage(error.message, false);
+        if (button) {
+            button.disabled = false;
+            button.innerText = "Restart Pi";
+        }
+    }
+}
+
+document.addEventListener("click", function(event) {
+    if (event.target.closest('[id^="driver-search-"]') ||
+        event.target.closest('[id^="driver-suggestions-"]')) {
+        return;
+    }
+
+    document.querySelectorAll('[id^="driver-suggestions-"]').forEach(box => {
+        box.classList.add("hidden");
+    });
+});
+
+async function loadUsers() {
+    try {
+        const res = await fetch("/api/users");
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Driver list loading failed");
+        }
+
+        userCache = Array.isArray(data.users) ? data.users : [];
+        return true;
+    } catch (error) {
+        userCache = [];
+        console.error("User list:", error);
+        showCockpitMessage(error.message, false);
+        return false;
+    }
+}
+
+async function selectCockpitDriver(cockpitId, userId) {
+    const input = document.getElementById(`driver-search-${cockpitId}`);
+    if (!input) return;
+
+    input.disabled = true;
+    hideDriverSuggestions(cockpitId);
+
+    try {
+        if (!userId) {
+            throw new Error("Please select a driver");
+        }
+
+        const res = await fetch(`/api/cockpits/${cockpitId}/driver`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({user_id: userId})
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Driver selection failed");
+        }
+
+        showCockpitMessage(
+            `Cockpit ${cockpitId} → ${data.driver?.name || "Driver selected"}`,
+            true
+        );
+
+        await loadCockpits();
+    } catch (error) {
+        showCockpitMessage(error.message, false);
+        await loadCockpits();
+    }
+}
+
+async function loadCockpits() {
+    const grid = document.getElementById("cockpitGrid");
+
+    // Only show the placeholder on the very first load. Blanking the grid
+    // on every refresh (Apply, session start/stop, vehicle/driver select)
+    // collapses the page height for a moment and snaps the scroll position
+    // to the top, which looks like the page "jumps" on every click.
+    const isFirstLoad = grid.dataset.loaded !== "true";
+    if (isFirstLoad) {
+        grid.innerHTML = '<div class="text-xs text-zinc-500 uppercase">Discovering...</div>';
+    }
+
+    try {
+        const res = await fetch("/api/cockpits");
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Cockpit discovery failed");
+        }
+
+        renderCockpits(data);
+        grid.dataset.loaded = "true";
+    } catch (error) {
+        if (isFirstLoad) {
+            grid.innerHTML = `
+                <div class="text-xs text-red-500 uppercase">
+                    ${escapeHtml(error.message)}
+                </div>`;
+        } else {
+            showCockpitMessage(error.message, false);
+        }
+    }
+}
+
+async function selectCockpitVehicle(cockpitId, vehicleName) {
+    const select = document.getElementById(`vehicle-${cockpitId}`);
+    if (!select) return;
+
+    select.disabled = true;
+
+    try {
+        const res = await fetch(`/api/cockpits/${cockpitId}/vehicle`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({vehicle_name: vehicleName})
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Vehicle assignment failed");
+        }
+
+        showCockpitMessage(
+            `Cockpit ${cockpitId} → ${data.vehicle || "Unassigned"}`,
+            true
+        );
+
+        await loadCockpits();
+    } catch (error) {
+        showCockpitMessage(error.message, false);
+        await loadCockpits();
+    }
+}
+
+async function saveCockpitSettings(cockpitId) {
+    const button = event.currentTarget;
+    button.disabled = true;
+
+    try {
+        const duration = document.getElementById(`duration-${cockpitId}`).value;
+        const sensitivity = document.getElementById(`sens-${cockpitId}`).value;
+        const throttle = document.getElementById(`throttle-${cockpitId}`).value;
+        const autocenterElem = document.getElementById(`autocenter-${cockpitId}`);
+
+        const payload = {
+            session_duration_minutes: Number(duration),
+            steering_sensitivity: Number(sensitivity),
+            throttle_sensitivity: Number(throttle)
+        };
+        if (autocenterElem) {
+            payload.autocenter_enabled = autocenterElem.checked;
+        }
+        const res = await fetch(`/api/cockpits/${cockpitId}/settings`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Settings save failed");
+        }
+
+        showCockpitMessage(`Cockpit ${cockpitId} settings saved`, true);
+        await loadCockpits();
+    } catch (error) {
+        showCockpitMessage(error.message, false);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function formatRemaining(seconds) {
+    seconds = Math.max(0, Number(seconds) || 0);
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+async function startCockpitSession(cockpitId) {
+    const button = document.getElementById(`session-start-${cockpitId}`);
+    if (button) button.disabled = true;
+
+    try {
+        const duration = document.getElementById(`duration-${cockpitId}`).value;
+
+        // Save the selected duration before starting.
+        const settingsRes = await fetch(`/api/cockpits/${cockpitId}/settings`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                session_duration_minutes: Number(duration)
+            })
+        });
+
+        const settingsData = await settingsRes.json();
+
+        if (!settingsRes.ok || !settingsData.success) {
+            throw new Error(settingsData.error || "Session duration save failed");
+        }
+
+        const res = await fetch(`/api/cockpits/${cockpitId}/session/start`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: "{}"
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Session start failed");
+        }
+
+        showCockpitMessage(`Cockpit ${cockpitId} session started`, true);
+        await loadCockpits();
+    } catch (error) {
+        showCockpitMessage(error.message, false);
+        await loadCockpits();
+    }
+}
+
+async function stopCockpitSession(cockpitId) {
+    const button = document.getElementById(`session-stop-${cockpitId}`);
+    if (button) button.disabled = true;
+
+    try {
+        const res = await fetch(`/api/cockpits/${cockpitId}/session/stop`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: "{}"
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Session stop failed");
+        }
+
+        showCockpitMessage(`Cockpit ${cockpitId} session stopped`, true);
+        await loadCockpits();
+    } catch (error) {
+        showCockpitMessage(error.message, false);
+        await loadCockpits();
+    }
+}
+
+async function updateStatus() {
+    try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+
+        document.getElementById("autocenterToggle").checked = data.autocenter;
+
+        if (data.haptics) {
+            document.getElementById("gripThresh").value = data.haptics.grip_threshold;
+            document.getElementById("gripVal").innerText = data.haptics.grip_threshold + "G";
+
+            document.getElementById("bumpSens").value = data.haptics.bump_sensitivity;
+            document.getElementById("bumpVal").innerText = data.haptics.bump_sensitivity + "x";
+
+            document.getElementById("centeringGain").value = data.haptics.centering_gain;
+            document.getElementById("centeringVal").innerText = data.haptics.centering_gain + "%";
+
+            document.getElementById("alphaFilter").value = data.haptics.alpha;
+            document.getElementById("alphaVal").innerText = data.haptics.alpha;
+        }
+    } catch (_) {
+        // Keep the cockpit UI usable if status polling temporarily fails.
+    }
+}
+
+async function updateHapticSettings() {
+    const grip = document.getElementById("gripThresh").value;
+    const bump = document.getElementById("bumpSens").value;
+    const centering = document.getElementById("centeringGain").value;
+    const alpha = document.getElementById("alphaFilter").value;
+
+    document.getElementById("gripVal").innerText = grip + "G";
+    document.getElementById("bumpVal").innerText = bump + "x";
+    document.getElementById("centeringVal").innerText = centering + "%";
+    document.getElementById("alphaVal").innerText = alpha;
+
+    await fetch("/api/haptics/tune", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            grip_threshold: grip,
+            bump_sensitivity: bump,
+            centering_gain: centering,
+            alpha: alpha
+        })
+    });
+}
+
+async function toggleAutocenter() {
+    const enabled = document.getElementById("autocenterToggle").checked;
+
+    await fetch("/api/autocenter/toggle", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({enabled})
+    });
+}
+
+setInterval(updateStatus, 1000);
+
+setInterval(async () => {
+    try {
+        const res = await fetch("/api/cockpits");
+        const data = await res.json();
+
+        if (!res.ok || !data.success) return;
+
+        data.cockpits.forEach(cockpit => {
+            const remainingEl = document.getElementById(
+                `remaining-${cockpit.cockpit_id}`
+            );
+
+            if (remainingEl) {
+                remainingEl.innerText = formatRemaining(
+                    cockpit.session?.remaining_seconds || 0
+                );
+            }
+        });
+
+        // Re-render when a session changes active/inactive state or expires,
+        // so vehicle release and button states are reflected immediately.
+        const changed = data.cockpits.some(cockpit => {
+            const cached = cockpitCache[cockpit.cockpit_id];
+            return !cached ||
+                cached.vehicle !== cockpit.vehicle ||
+                cached.vehicle_type !== cockpit.vehicle_type ||
+                cached.esp_car_id !== cockpit.esp_car_id ||
+                cached.session?.active !== cockpit.session?.active ||
+                cached.wheel?.path !== cockpit.wheel?.path ||
+                cached.wheel?.phys !== cockpit.wheel?.phys ||
+                cached.driver?.user_id !== cockpit.driver?.user_id;
+        });
+
+        if (changed) {
+            renderCockpits(data);
+        } else {
+            cockpitCache = {};
+            data.cockpits.forEach(c => cockpitCache[c.cockpit_id] = c);
+        }
+    } catch (_) {
+        // Keep the existing UI usable during a temporary API failure.
+    }
+}, 1000);
+
+async function initializePage() {
+    await loadUsers();
+    await loadCockpits();
+}
+
+updateStatus();
+initializePage();
+
+async function testFFB(cockpitId, effect) {
+    try {
+        await fetch('/api/ffb_test', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({cockpit_id: cockpitId, effect: effect})
+        });
+    } catch(err) {
+        console.error(err);
+    }
+}
+</script>
+
+</body>
+</html>
